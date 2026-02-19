@@ -1,63 +1,16 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
+from typing import Optional, Dict, Any
+
 import pandas as pd
 import matplotlib.pyplot as plt
-
-from pathlib import Path
-from datetime import date
-from typing import Optional, Dict, Any
 
 from .io_utils import load_fleet, load_task_cards, save_report, ensure_reports_dir, REPORTS_DIR
 from .simulator import ForecastConfig, run_simulation
 from .scheduler import CapacityConfig
 from .risk import build_risk_register
-
-def run(
-    forecast_start: Optional[str] = None,
-    horizon_days: int = 120,
-    capacity_multiplier: float = 1.0,
-    write_reports: bool = True,
-) -> Dict[str, Any]:
-    """
-    Runs the simulator and returns paths + (optionally) in-memory data.
-    capacity_multiplier < 1.0 forces capacity constraints to demonstrate risks.
-    """
-
-    # ✅ Use your existing defaults if you already set these in main()
-    # If you already have variables like FORECAST_START / HORIZON_DAYS / CAPACITY_PER_DAY,
-    # just apply multiplier to the capacity variable before scheduling.
-
-    # Example pattern:
-    base_capacity_per_day = 160
-    if capacity_multiplier < 0.5:
-        capacity_per_day = 40
-    else:
-        capacity_per_day = int(base_capacity_per_day * capacity_multiplier)
-
-    # --- START: plug into your existing flow ---
-    # The goal: keep your current logic, but parameterize horizon/capacity.
-
-    # IMPORTANT: replace these 3 lines with whatever you already use
-    FORECAST_START = forecast_start or str(date.today())
-    HORIZON_DAYS = horizon_days
-
-    # If your capacity is defined in code, multiply it here.
-    # Example:
-    # CAPACITY_PER_DAY = int(CAPACITY_PER_DAY * capacity_multiplier)
-
-    # Then run your existing simulation exactly as you do now.
-    # --- END: plug into your existing flow ---
-
-    # Your code currently writes to reports/*. Return those paths:
-    reports_dir = Path("reports")
-    out = {
-        "maintenance_plan": str(reports_dir / "maintenance_plan.csv"),
-        "capacity_calendar": str(reports_dir / "capacity_calendar.csv"),
-        "risk_register": str(reports_dir / "risk_register.csv"),
-        "workload_chart": str(reports_dir / "workload_vs_capacity.png"),
-    }
-    return out
 
 
 def build_capacity_summary(capacity_df: pd.DataFrame) -> pd.DataFrame:
@@ -79,7 +32,6 @@ def build_capacity_summary(capacity_df: pd.DataFrame) -> pd.DataFrame:
 def plot_workload(summary_df: pd.DataFrame) -> str:
     ensure_reports_dir()
 
-    # total across bases per day (simple view)
     daily = (
         summary_df.groupby("date", as_index=False)
         .agg(capacity=("capacity_labor_hours", "sum"), used=("used_labor_hours", "sum"))
@@ -102,51 +54,96 @@ def plot_workload(summary_df: pd.DataFrame) -> str:
     return str(out_path)
 
 
-def main() -> None:
-    # "as of" date for forecast run
-    today = pd.to_datetime(date.today()).normalize()
+def run(
+    forecast_start: Optional[str] = None,
+    horizon_days: int = 120,
+    capacity_multiplier: float = 1.0,
+    write_reports: bool = True,
+) -> Dict[str, Any]:
+    """
+    Runs the simulator and writes fresh outputs every time.
 
+    - horizon_days affects how far ahead we plan
+    - capacity_multiplier scales daily labor capacity
+      (lower values force constraints -> populate risk register)
+    """
+    # Forecast start date
+    today = pd.to_datetime(date.today()).normalize()
+    if forecast_start:
+        today = pd.to_datetime(forecast_start).normalize()
+
+    # Load inputs
     fleet_df = load_fleet()
     task_df = load_task_cards()
 
-    forecast_cfg = ForecastConfig(start_date=today.date(), horizon_days=120, seed_history=True)
-        # Capacity tuning (lower multiplier to force risks)
+    # Daily capacity model (hours/day per base)
     base_capacity_per_day = 160
-    capacity_multiplier = 0.5  # try 0.6 or 0.4 to generate risk flags
-    capacity_per_day = float(base_capacity_per_day * capacity_multiplier)
-    capacity_cfg = CapacityConfig(labor_hours_per_day=5, horizon_days=120)
+    capacity_per_day = max(1, int(base_capacity_per_day * float(capacity_multiplier)))
 
-    
+    forecast_cfg = ForecastConfig(
+        start_date=today.date(),
+        horizon_days=int(horizon_days),
+        seed_history=True,
+    )
+    capacity_cfg = CapacityConfig(
+        labor_hours_per_day=float(capacity_per_day),
+        horizon_days=int(horizon_days),
+    )
 
     scheduled_df, capacity_df = run_simulation(fleet_df, task_df, forecast_cfg, capacity_cfg)
 
-    if scheduled_df.empty:
-        print("No tasks were generated in the forecast horizon. Check input data.")
-        return
+    ensure_reports_dir()
 
-    # Reports
-    plan_path = save_report(scheduled_df, "maintenance_plan.csv")
+    out = {
+        "maintenance_plan": str(REPORTS_DIR / "maintenance_plan.csv"),
+        "capacity_calendar": str(REPORTS_DIR / "capacity_calendar.csv"),
+        "risk_register": str(REPORTS_DIR / "risk_register.csv"),
+        "workload_chart": str(REPORTS_DIR / "workload_vs_capacity.png"),
+    }
+
+    if not write_reports:
+        return out
+
+    # If nothing produced, still write empty files (so Streamlit doesn't crash)
+    if scheduled_df.empty:
+        pd.DataFrame().to_csv(out["maintenance_plan"], index=False)
+        pd.DataFrame().to_csv(out["capacity_calendar"], index=False)
+        pd.DataFrame().to_csv(out["risk_register"], index=False)
+        # delete chart if exists
+        chart_file = Path(out["workload_chart"])
+        if chart_file.exists():
+            chart_file.unlink()
+        return out
+
+    # Write reports
+    save_report(scheduled_df, "maintenance_plan.csv")
 
     capacity_summary = build_capacity_summary(capacity_df)
-    cap_path = save_report(capacity_summary, "capacity_calendar.csv")
+    save_report(capacity_summary, "capacity_calendar.csv")
 
     risk_df = build_risk_register(scheduled_df, today=today)
-    risk_path = save_report(risk_df, "risk_register.csv")
+    save_report(risk_df, "risk_register.csv")
 
-    chart_path = plot_workload(capacity_summary)
+    # Force overwrite chart so Streamlit can't keep a stale version
+    chart_path = REPORTS_DIR / "workload_vs_capacity.png"
+    if chart_path.exists():
+        chart_path.unlink()
+    plot_workload(capacity_summary)
 
-    # Console output (nice for demos)
-    scheduled_rate = (scheduled_df["scheduled"].mean() * 100.0) if len(scheduled_df) else 0.0
+    return out
+
+
+def main() -> None:
+    # Local CLI run (still works)
+    paths = run(horizon_days=120, capacity_multiplier=1.0, write_reports=True)
+
     print("\n=== Aircraft Maintenance Forecast Simulator ===")
-    print(f"Forecast start: {today.date()} | Horizon: {forecast_cfg.horizon_days} days")
-    print(f"Tasks forecasted: {len(scheduled_df)}")
-    print(f"Scheduled rate: {scheduled_rate:.1f}%")
     print(f"Reports:")
-    print(f" - {plan_path}")
-    print(f" - {cap_path}")
-    print(f" - {risk_path}")
-    print(f"Chart:")
-    print(f" - {chart_path}\n")
+    print(f" - {paths['maintenance_plan']}")
+    print(f" - {paths['capacity_calendar']}")
+    print(f" - {paths['risk_register']}")
+    print("Chart:")
+    print(f" - {paths['workload_chart']}\n")
 
 
 if __name__ == "__main__":
