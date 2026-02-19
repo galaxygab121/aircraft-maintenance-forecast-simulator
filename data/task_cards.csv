@@ -1,0 +1,10 @@
+task_id,task_name,fleet_type,interval_days,interval_flight_hours,labor_hours,window_days,criticality
+TC-A320-001,Hydraulic Filter Inspect,A320,30,0,6,7,High
+TC-A320-002,Avionics Cooling Check,A320,60,0,8,10,Medium
+TC-A320-003,Landing Gear Lube,A320,90,0,10,14,High
+TC-B737-001,Engine Borescope Trend,B737,45,0,7,7,High
+TC-B737-002,APU Operational Check,B737,60,0,6,10,Medium
+TC-B737-003,Cabin Pressure Leak Test,B737,120,0,14,21,Low
+TC-B787-001,Composite Skin Visual,B787,90,0,12,14,Medium
+TC-B787-002,ETOPS Systems Review,B787,60,0,16,10,High
+TC-B787-003,Environmental Control Tune,B787,120,0,18,21,Medium
