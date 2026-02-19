@@ -58,9 +58,11 @@ if run_btn:
     st.success("Simulation complete. Reports refreshed.")
 
 # Always try to display latest outputs if they exist
-reports_dir = Path("reports")
+PROJECT_ROOT = Path(__file__).resolve().parent
+reports_dir = PROJECT_ROOT / "reports"
+
 plan_path = reports_dir / "maintenance_plan.csv"
-cap_path = reports_dir / "capacity_calendar.csv"
+cap_path  = reports_dir / "capacity_calendar.csv"
 risk_path = reports_dir / "risk_register.csv"
 chart_path = reports_dir / "workload_vs_capacity.png"
 
