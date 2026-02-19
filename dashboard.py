@@ -74,14 +74,14 @@ with right:
     with tab1:
         if plan_path.exists():
             df = pd.read_csv(plan_path)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width="stretch")
         else:
             st.warning("No maintenance_plan.csv yet. Click **Run Forecast + Build Plan**.")
 
     with tab2:
         if cap_path.exists():
             df = pd.read_csv(cap_path)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width="stretch")
         else:
             st.warning("No capacity_calendar.csv yet.")
 
@@ -103,6 +103,6 @@ with right:
 
     with tab4:
         if chart_path.exists():
-            st.image(str(chart_path), use_container_width=True)
+            st.image(str(chart_path), width="stretch")
         else:
             st.warning("No chart yet.")
